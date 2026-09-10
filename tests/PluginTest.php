@@ -6,6 +6,7 @@ namespace Acme\DomainPolicy\Tests;
 
 use Acme\DomainPolicy\Handler\BlockedSuffixPolicy;
 use Acme\DomainPolicy\Handler\TagNewDomain;
+use Acme\DomainPolicy\Ui\PolicyPage;
 use AdminBolt\Plugin\Config;
 use AdminBolt\Plugin\Hook\Hook;
 use AdminBolt\Plugin\Hook\HookRequest;
@@ -14,6 +15,7 @@ use AdminBolt\Plugin\Http\HttpClient;
 use AdminBolt\Plugin\Http\HttpResponse;
 use AdminBolt\Plugin\Manifest;
 use AdminBolt\Plugin\Plugin;
+use AdminBolt\Plugin\Ui\UiRequest;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -127,6 +129,79 @@ final class PluginTest extends TestCase
 
         self::assertSame('ok', $result->json()['status']);
         self::assertSame('missing dns scope', $result->json()['data']['skipped']);
+    }
+
+    /** @return array{0: array<string, string>, 1: string} */
+    private function uiDelivery(string $slug, ?string $action = null, array $extra = []): array
+    {
+        $body = json_encode([
+            'slug' => $slug,
+            'panel' => 'client',
+            'viewer' => ['id' => 3, 'name' => 'Jo'],
+            'hosting_account' => ['id' => 7, 'username' => 'acme'],
+            'action' => $action,
+            ...$extra,
+        ], JSON_THROW_ON_ERROR);
+
+        $timestamp = time();
+
+        return [
+            [
+                Signature::HEADER_SIGNATURE => Signature::compute(self::HOOK_SECRET, $timestamp, $body),
+                Signature::HEADER_TIMESTAMP => (string) $timestamp,
+            ],
+            $body,
+        ];
+    }
+
+    public function test_the_page_lists_the_accounts_domains_and_flags_the_blocked_ones(): void
+    {
+        $http = new RecordingHttpClient(new HttpResponse(200, json_encode([
+            ['domain' => 'example.com', 'created_at' => '2026-01-01T00:00:00+00:00'],
+            ['domain' => 'staging.local', 'created_at' => '2026-02-01T00:00:00+00:00'],
+        ], JSON_THROW_ON_ERROR)));
+
+        $plugin = $this->plugin(http: $http);
+        $page = new PolicyPage($plugin, ['.local']);
+        $plugin->page('domain-policy', $page->render(...));
+
+        [$headers, $body] = $this->uiDelivery('domain-policy');
+        $rendered = $plugin->httpRuntime()->handle('POST', '/ui/domain-policy', $headers, $body)->json()['page'];
+
+        self::assertSame('Domain Policy', $rendered['heading']);
+        self::assertSame('2', $rendered['stats'][0]['value']);
+        self::assertSame('1', $rendered['stats'][1]['value']);
+
+        $table = $rendered['components'][1];
+        self::assertSame('allowed', $table['rows'][0]['status']);
+        self::assertSame('blocked', $table['rows'][1]['status']);
+
+        // The page is read for one account, and the panel said which.
+        self::assertSame('acme', $http->lastHeaders['X-Hosting-Account']);
+    }
+
+    public function test_a_row_action_recomputes_rather_than_trusting_the_key(): void
+    {
+        $plugin = $this->plugin();
+        $page = new PolicyPage($plugin, ['.local']);
+        $plugin->action('check', $page->check(...));
+
+        [$headers, $body] = $this->uiDelivery('domain-policy', 'check', ['arguments' => ['key' => 'shop.local']]);
+        $result = $plugin->httpRuntime()->handle('POST', '/ui/domain-policy/check', $headers, $body);
+
+        self::assertSame('warning', $result->json()['result']['level']);
+        self::assertStringContainsString('would be refused', $result->json()['result']['message']);
+    }
+
+    public function test_an_unsigned_page_request_is_refused(): void
+    {
+        $plugin = $this->plugin();
+        $page = new PolicyPage($plugin, []);
+        $plugin->page('domain-policy', $page->render(...));
+
+        [, $body] = $this->uiDelivery('domain-policy');
+
+        self::assertSame(401, $plugin->httpRuntime()->handle('POST', '/ui/domain-policy', [], $body)->status);
     }
 
     public function test_an_unsigned_delivery_is_refused(): void

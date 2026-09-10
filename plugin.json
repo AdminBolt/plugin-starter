@@ -65,5 +65,14 @@
                 "error": "Error"
             }
         }
+    ],
+    "ui": [
+        {
+            "panel": "client",
+            "slug": "domain-policy",
+            "title": "Domain Policy",
+            "icon": "heroicon-o-shield-check",
+            "group": "Domains"
+        }
     ]
 }

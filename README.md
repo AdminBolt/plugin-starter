@@ -3,7 +3,7 @@
 A complete, runnable AdminBolt panel plugin. Copy it, rename it, replace the
 handlers.
 
-It demonstrates the three things every plugin does:
+It demonstrates the four things every plugin does:
 
 - **Refuses an operation.** A blocking `domain.creating` handler
   rejects domains ending in a configured suffix, with a message the customer
@@ -12,6 +12,9 @@ It demonstrates the three things every plugin does:
   version, returned as a mutation rather than a second API call.
 - **Calls the panel back.** An `domain.created` handler adds a TXT
   record through the client API, scoped to the account the hook came from.
+- **Puts a page in the panel.** A client-area page lists the account's domains
+  and flags the ones policy would refuse, described in PHP and rendered by the
+  panel with its own components.
 
 Nothing here is coupled to the panel. It is a PHP application with two
 dependencies, and it ships and versions on its own.
@@ -76,6 +79,25 @@ curl -X POST http://127.0.0.1:8731/ \
   -H "X-Bolt-Timestamp: $TS" \
   -H "X-Bolt-Signature: $SIG" \
   --data-binary "$BODY"
+```
+
+## The page
+
+`plugin.json` declares it, which is what puts it in the navigation:
+
+```json
+"ui": [
+    { "panel": "client", "slug": "domain-policy", "title": "Domain Policy", "group": "Domains" }
+]
+```
+
+`src/Ui/PolicyPage.php` says what is on it. It returns a description, not
+markup, so the page matches the rest of the panel and there is nothing to
+escape. Render it without a browser:
+
+```bash
+bolt-plugin page domain-policy --account=acme
+bolt-plugin page domain-policy --action=check --arguments='{"key":"shop.local"}'
 ```
 
 ## Tests

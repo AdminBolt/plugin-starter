@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 use Acme\DomainPolicy\Handler\BlockedSuffixPolicy;
 use Acme\DomainPolicy\Handler\TagNewDomain;
+use Acme\DomainPolicy\Ui\PolicyPage;
 use AdminBolt\Plugin\Hook\Hook;
 use AdminBolt\Plugin\Hook\HookRequest;
 use AdminBolt\Plugin\Hook\HookResponse;
@@ -42,5 +43,17 @@ $plugin->on(Hook::PLUGIN_CONFIGURED, function (HookRequest $hook) use ($plugin) 
 
     return HookResponse::ok();
 });
+
+// The plugin's own page in the client area, declared under "ui" in
+// plugin.json. It describes what to show and the panel renders it natively,
+// so there is no HTML here and the page matches the rest of the panel.
+$page = new PolicyPage($plugin, array_values(array_filter(array_map(
+    static fn (string $suffix): string => strtolower(trim($suffix)),
+    explode(',', (string) $plugin->setting('blocked_suffixes', ''))
+))));
+
+$plugin->page('domain-policy', $page->render(...));
+$plugin->action('check', $page->check(...));
+$plugin->action('recheck', $page->recheck(...));
 
 $plugin->run();
