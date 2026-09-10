@@ -71,7 +71,7 @@ final class PluginTest extends TestCase
         $plugin = $this->plugin(['blocked_suffixes' => '.test, .local']);
         $plugin->register(new BlockedSuffixPolicy('.test, .local'));
 
-        [$headers, $body] = $this->delivery(Hook::BEFORE_DOMAIN_CREATION, ['domain' => 'shop.LOCAL']);
+        [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'shop.LOCAL']);
         $result = $plugin->httpRuntime()->handle('POST', '/', $headers, $body);
 
         self::assertSame('reject', $result->json()['status']);
@@ -83,7 +83,7 @@ final class PluginTest extends TestCase
         $plugin = $this->plugin();
         $plugin->register(new BlockedSuffixPolicy('.test'));
 
-        [$headers, $body] = $this->delivery(Hook::BEFORE_DOMAIN_CREATION, ['domain' => 'example.com']);
+        [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'example.com']);
 
         self::assertSame('ok', $plugin->httpRuntime()->handle('POST', '/', $headers, $body)->json()['status']);
     }
@@ -93,7 +93,7 @@ final class PluginTest extends TestCase
         $plugin = $this->plugin();
         $plugin->register(new BlockedSuffixPolicy('.test', '8.3'));
 
-        [$headers, $body] = $this->delivery(Hook::BEFORE_DOMAIN_CREATION, ['domain' => 'example.com']);
+        [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'example.com']);
 
         self::assertSame(
             ['php_version' => '8.3'],
@@ -107,7 +107,7 @@ final class PluginTest extends TestCase
         $plugin = $this->plugin(http: $http);
         $plugin->register(new TagNewDomain($plugin));
 
-        [$headers, $body] = $this->delivery(Hook::AFTER_DOMAIN_CREATION, ['id' => 42, 'domain' => 'example.com']);
+        [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATED, ['id' => 42, 'domain' => 'example.com']);
         $result = $plugin->httpRuntime()->handle('POST', '/', $headers, $body);
 
         self::assertSame(99, $result->json()['data']['record_id']);
@@ -122,7 +122,7 @@ final class PluginTest extends TestCase
         $plugin = $this->plugin(http: $http);
         $plugin->register(new TagNewDomain($plugin));
 
-        [$headers, $body] = $this->delivery(Hook::AFTER_DOMAIN_CREATION, ['id' => 42]);
+        [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATED, ['id' => 42]);
         $result = $plugin->httpRuntime()->handle('POST', '/', $headers, $body);
 
         self::assertSame('ok', $result->json()['status']);
@@ -134,7 +134,7 @@ final class PluginTest extends TestCase
         $plugin = $this->plugin();
         $plugin->register(new BlockedSuffixPolicy('.test'));
 
-        [, $body] = $this->delivery(Hook::BEFORE_DOMAIN_CREATION, ['domain' => 'example.test']);
+        [, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'example.test']);
 
         self::assertSame(401, $plugin->httpRuntime()->handle('POST', '/', [], $body)->status);
     }

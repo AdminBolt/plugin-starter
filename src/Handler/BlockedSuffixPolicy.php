@@ -33,7 +33,7 @@ final class BlockedSuffixPolicy implements HookHandler
 
     public function hooks(): array
     {
-        return [Hook::BEFORE_DOMAIN_CREATION];
+        return [Hook::DOMAIN_CREATING];
     }
 
     public function handle(HookRequest $request): HookResponse

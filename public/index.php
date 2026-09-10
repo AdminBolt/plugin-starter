@@ -20,22 +20,22 @@ require __DIR__ . '/../vendor/autoload.php';
 
 $plugin = Plugin::boot(__DIR__);
 
-// A blocking before_* handler. It runs inside the creation, so it can refuse
-// it outright, and the message it returns is what the customer reads.
+// A blocking handler. It runs inside the creation, so it can refuse it
+// outright, and the message it returns is what the customer reads.
 $plugin->register(new BlockedSuffixPolicy(
     suffixes: (string) $plugin->setting('blocked_suffixes', ''),
     forcePhpVersion: $plugin->setting('force_php_version') ?: null,
 ));
 
-// An after_* handler. The domain already exists by the time this runs, so
-// there is nothing to veto; it calls back into the panel instead.
+// A notification handler. The domain already exists by the time this runs,
+// so there is nothing to veto; it calls back into the panel instead.
 if ($plugin->setting('tag_records', true)) {
     $plugin->register(new TagNewDomain($plugin));
 }
 
 // The panel fires this whenever an operator saves the settings form. A plugin
 // that caches derived state rebuilds it here.
-$plugin->on(Hook::PLUGIN_SETTINGS_UPDATED, function (HookRequest $hook) use ($plugin) {
+$plugin->on(Hook::PLUGIN_CONFIGURED, function (HookRequest $hook) use ($plugin) {
     $plugin->logger()->info('Settings were changed in the panel', [
         'changed' => array_keys($hook->payload('changed', [])),
     ]);

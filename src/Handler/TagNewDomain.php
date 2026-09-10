@@ -14,7 +14,7 @@ use AdminBolt\Plugin\Plugin;
 /**
  * Adds a TXT record to every new domain, through the panel's client API.
  *
- * The shape of an after_* handler: the domain already exists, so there is
+ * The shape of a notification handler: the domain already exists, so there is
  * nothing to veto, and the work is a call back into the panel scoped to the
  * account the hook came from.
  */
@@ -28,7 +28,7 @@ final class TagNewDomain implements HookHandler
 
     public function hooks(): array
     {
-        return [Hook::AFTER_DOMAIN_CREATION];
+        return [Hook::DOMAIN_CREATED];
     }
 
     public function handle(HookRequest $request): HookResponse
@@ -65,7 +65,7 @@ final class TagNewDomain implements HookHandler
             }
 
             // Anything else is worth another attempt: the panel retries an
-            // after_* delivery that comes back as an error.
+            // notification delivery that comes back as an error.
             return HookResponse::error('Could not create the TXT record: ' . $e->getMessage());
         }
 

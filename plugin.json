@@ -25,13 +25,13 @@
     },
     "hooks": [
         {
-            "event": "before_domain_creation",
+            "event": "domain.creating",
             "blocking": true,
             "timeout": 5,
             "on_failure": "open"
         },
-        "after_domain_creation",
-        "plugin_settings_updated"
+        "domain.created",
+        "plugin.configured"
     ],
     "settings": [
         {

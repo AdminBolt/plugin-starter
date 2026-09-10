@@ -5,12 +5,12 @@ handlers.
 
 It demonstrates the three things every plugin does:
 
-- **Refuses an operation.** A blocking `before_domain_creation` handler
+- **Refuses an operation.** A blocking `domain.creating` handler
   rejects domains ending in a configured suffix, with a message the customer
   reads.
 - **Changes an input.** The same handler can pin every new domain to one PHP
   version, returned as a mutation rather than a second API call.
-- **Calls the panel back.** An `after_domain_creation` handler adds a TXT
+- **Calls the panel back.** An `domain.created` handler adds a TXT
   record through the client API, scoped to the account the hook came from.
 
 Nothing here is coupled to the panel. It is a PHP application with two
@@ -51,7 +51,7 @@ BOLT_PLUGIN_DIR="$PWD" php -S 127.0.0.1:8731 -t public public/index.php
 Deliver a hook to it:
 
 ```bash
-bolt-plugin hook before_domain_creation \
+bolt-plugin hook domain.creating \
   --payload='{"domain":"shop.local"}' \
   --url=http://127.0.0.1:8731
 ```
@@ -67,7 +67,7 @@ Without the CLI, sign a delivery by hand. The signature covers the timestamp
 and the exact bytes of the body:
 
 ```bash
-BODY='{"hook":"before_domain_creation","delivery_id":"dlv_1","payload":{"domain":"shop.local"}}'
+BODY='{"hook":"domain.creating","delivery_id":"dlv_1","payload":{"domain":"shop.local"}}'
 TS=$(date +%s)
 SIG="v1=$(printf 'v1:%s:%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac 'any-value-for-local-testing' -hex | sed 's/.*= //')"
 
@@ -110,7 +110,7 @@ bolt-plugin validate
 **A blocking handler must be fast and must not depend on anything remote.** It
 runs while the panel is holding a customer's request. A network call in a
 blocking handler is a network call that will one day hold up domain creation
-for its entire timeout. Do the slow work in an `after_*` handler, which is
+for its entire timeout. Do the slow work in a notification handler, which is
 queued and retried.
 
 **Ask for the narrowest scopes that work.** `client:dns-records:write` is a
