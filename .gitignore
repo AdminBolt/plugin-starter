@@ -1,0 +1,7 @@
+/vendor/
+composer.lock
+.phpunit.result.cache
+
+# Written by the panel at install time. runtime.json holds a live API secret.
+/runtime.json
+/var/

@@ -1,0 +1,69 @@
+{
+    "$schema": "https://raw.githubusercontent.com/AdminBolt/plugin-sdk/main/schema/plugin.schema.json",
+    "id": "domain-policy",
+    "name": "Domain Policy",
+    "version": "1.0.0",
+    "description": "Refuses domains matching a blocklist and tags the ones it allows.",
+    "author": {
+        "name": "Your Name",
+        "url": "https://example.com"
+    },
+    "license": "MIT",
+    "sdk": "^1.0",
+    "panel": ">=1.9.0",
+    "icon": "heroicon-o-shield-check",
+    "runtime": {
+        "php": "^8.2",
+        "entrypoint": "public/index.php",
+        "transport": "http"
+    },
+    "api": {
+        "scopes": [
+            "client:domains:read",
+            "client:dns-records:write"
+        ]
+    },
+    "hooks": [
+        {
+            "event": "before_domain_creation",
+            "blocking": true,
+            "timeout": 5,
+            "on_failure": "open"
+        },
+        "after_domain_creation",
+        "plugin_settings_updated"
+    ],
+    "settings": [
+        {
+            "key": "blocked_suffixes",
+            "type": "string",
+            "label": "Blocked suffixes",
+            "help": "Comma separated, for example: .test, .local, .invalid",
+            "default": ".test, .local, .invalid"
+        },
+        {
+            "key": "force_php_version",
+            "type": "string",
+            "label": "Force PHP version",
+            "help": "Leave empty to let the hosting plan decide. Otherwise every new domain is created on this version."
+        },
+        {
+            "key": "tag_records",
+            "type": "bool",
+            "label": "Add a TXT record to new domains",
+            "default": true
+        },
+        {
+            "key": "log_level",
+            "type": "select",
+            "label": "Log level",
+            "default": "info",
+            "options": {
+                "debug": "Debug",
+                "info": "Info",
+                "warning": "Warning",
+                "error": "Error"
+            }
+        }
+    ]
+}
