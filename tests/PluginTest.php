@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Acme\DomainPolicy\Tests;
 
 use Acme\DomainPolicy\Handler\BlockedSuffixPolicy;
+use Acme\DomainPolicy\Journal;
+use Acme\DomainPolicy\Policy;
 use Acme\DomainPolicy\Handler\TagNewDomain;
+use Acme\DomainPolicy\Ui\OperatorPage;
 use Acme\DomainPolicy\Ui\PolicyPage;
+use Acme\DomainPolicy\Ui\Slots;
 use AdminBolt\Plugin\Config;
 use AdminBolt\Plugin\Hook\Hook;
 use AdminBolt\Plugin\Hook\HookRequest;
@@ -25,7 +29,7 @@ final class PluginTest extends TestCase
 {
     private const HOOK_SECRET = 'test-hook-secret';
 
-    private function plugin(array $settings = [], ?HttpClient $http = null): Plugin
+    private function plugin(array $settings = [], ?HttpClient $http = null, ?string $data = null): Plugin
     {
         return Plugin::create(
             Manifest::fromFile(__DIR__ . '/../plugin.json'),
@@ -35,9 +39,39 @@ final class PluginTest extends TestCase
                 'api' => ['key' => 'k', 'secret' => 's'],
                 'hooks' => ['secret' => self::HOOK_SECRET],
                 'settings' => $settings,
+                'paths' => $data === null ? [] : ['data' => $data, 'logs' => $data],
             ], 'test'),
             http: $http,
         );
+    }
+
+    /**
+     * A directory that goes away with the test, for the one thing a plugin
+     * keeps between requests.
+     */
+    private function dataDirectory(): string
+    {
+        $path = sys_get_temp_dir() . '/domain-policy-test-' . bin2hex(random_bytes(6));
+        mkdir($path, 0o755, true);
+        $this->directories[] = $path;
+
+        return $path;
+    }
+
+    /** @var list<string> */
+    private array $directories = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->directories as $directory) {
+            foreach ((array) glob($directory . '/*') as $file) {
+                @unlink((string) $file);
+            }
+
+            @rmdir($directory);
+        }
+
+        parent::tearDown();
     }
 
     /** @return array{0: array<string, string>, 1: string} */
@@ -71,7 +105,7 @@ final class PluginTest extends TestCase
     public function test_a_blocked_suffix_stops_the_creation(): void
     {
         $plugin = $this->plugin(['blocked_suffixes' => '.test, .local']);
-        $plugin->register(new BlockedSuffixPolicy('.test, .local'));
+        $plugin->register(new BlockedSuffixPolicy(new Policy(Policy::parse('.test, .local'))));
 
         [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'shop.LOCAL']);
         $result = $plugin->httpRuntime()->handle('POST', '/', $headers, $body);
@@ -83,7 +117,7 @@ final class PluginTest extends TestCase
     public function test_an_allowed_domain_passes(): void
     {
         $plugin = $this->plugin();
-        $plugin->register(new BlockedSuffixPolicy('.test'));
+        $plugin->register(new BlockedSuffixPolicy(new Policy(['.test'])));
 
         [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'example.com']);
 
@@ -93,7 +127,7 @@ final class PluginTest extends TestCase
     public function test_forcing_a_php_version_comes_back_as_a_mutation(): void
     {
         $plugin = $this->plugin();
-        $plugin->register(new BlockedSuffixPolicy('.test', '8.3'));
+        $plugin->register(new BlockedSuffixPolicy(new Policy(['.test'], '8.3')));
 
         [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'example.com']);
 
@@ -162,7 +196,7 @@ final class PluginTest extends TestCase
         ], JSON_THROW_ON_ERROR)));
 
         $plugin = $this->plugin(http: $http);
-        $page = new PolicyPage($plugin, ['.local']);
+        $page = new PolicyPage($plugin, new Policy(['.local']));
         $plugin->page('domain-policy', $page->render(...));
 
         [$headers, $body] = $this->uiDelivery('domain-policy');
@@ -183,7 +217,7 @@ final class PluginTest extends TestCase
     public function test_a_row_action_recomputes_rather_than_trusting_the_key(): void
     {
         $plugin = $this->plugin();
-        $page = new PolicyPage($plugin, ['.local']);
+        $page = new PolicyPage($plugin, new Policy(['.local']));
         $plugin->action('check', $page->check(...));
 
         [$headers, $body] = $this->uiDelivery('domain-policy', 'check', ['arguments' => ['key' => 'shop.local']]);
@@ -193,10 +227,123 @@ final class PluginTest extends TestCase
         self::assertStringContainsString('would be refused', $result->json()['result']['message']);
     }
 
+    public function test_the_form_checks_a_name_without_creating_anything(): void
+    {
+        $plugin = $this->plugin();
+        $page = new PolicyPage($plugin, new Policy(['.local']));
+        $plugin->action('try', $page->try(...));
+
+        [$headers, $body] = $this->uiDelivery('domain-policy', 'try', ['input' => ['domain' => 'shop.local']]);
+        $result = $plugin->httpRuntime()->handle('POST', '/ui/domain-policy/try', $headers, $body)->json()['result'];
+
+        self::assertSame('warning', $result['level']);
+        self::assertStringContainsString('would be refused', $result['message']);
+    }
+
+    /**
+     * The message belongs under the input it is about, which is what the
+     * panel does with errors keyed by field name.
+     */
+    public function test_a_name_that_is_not_a_name_comes_back_on_the_field(): void
+    {
+        $plugin = $this->plugin();
+        $page = new PolicyPage($plugin, new Policy([]));
+        $plugin->action('try', $page->try(...));
+
+        [$headers, $body] = $this->uiDelivery('domain-policy', 'try', ['input' => ['domain' => 'not a domain']]);
+        $result = $plugin->httpRuntime()->handle('POST', '/ui/domain-policy/try', $headers, $body)->json()['result'];
+
+        self::assertArrayHasKey('domain', $result['errors']);
+    }
+
+    public function test_a_slot_says_the_rule_where_the_customer_is_already_looking(): void
+    {
+        $plugin = $this->plugin(['blocked_suffixes' => '.test, .local']);
+        $slots = new Slots($plugin);
+        $plugin->slot('policy-note', $slots->policyNote(...));
+
+        [$headers, $body] = $this->uiDelivery('policy-note');
+        $rendered = $plugin->httpRuntime()->handle('POST', '/ui/policy-note', $headers, $body)->json()['page'];
+
+        self::assertCount(1, $rendered['components'], 'a slot is one short thing, not a page');
+        self::assertStringContainsString('.local', $rendered['components'][0]['content']);
+    }
+
+    /**
+     * A slot with nothing to say says nothing, and the panel draws nothing.
+     * A footer note that is always there stops being read.
+     */
+    public function test_a_slot_with_nothing_to_say_draws_nothing(): void
+    {
+        $plugin = $this->plugin(['blocked_suffixes' => '']);
+        $slots = new Slots($plugin);
+        $plugin->slot('policy-note', $slots->policyNote(...));
+
+        [$headers, $body] = $this->uiDelivery('policy-note');
+        $rendered = $plugin->httpRuntime()->handle('POST', '/ui/policy-note', $headers, $body)->json()['page'];
+
+        self::assertSame([], $rendered['components']);
+    }
+
+    public function test_the_notice_slot_appears_only_while_the_plugin_is_doing_nothing(): void
+    {
+        $unconfigured = $this->plugin(['blocked_suffixes' => '']);
+        $unconfigured->slot('unconfigured-notice', (new Slots($unconfigured))->unconfiguredNotice(...));
+
+        [$headers, $body] = $this->uiDelivery('unconfigured-notice', null, ['panel' => 'admin']);
+        $rendered = $unconfigured->httpRuntime()->handle('POST', '/ui/unconfigured-notice', $headers, $body)->json()['page'];
+
+        self::assertSame('alert', $rendered['components'][0]['type']);
+
+        $configured = $this->plugin(['blocked_suffixes' => '.test']);
+        $configured->slot('unconfigured-notice', (new Slots($configured))->unconfiguredNotice(...));
+
+        [$headers, $body] = $this->uiDelivery('unconfigured-notice', null, ['panel' => 'admin']);
+        $rendered = $configured->httpRuntime()->handle('POST', '/ui/unconfigured-notice', $headers, $body)->json()['page'];
+
+        self::assertSame([], $rendered['components']);
+    }
+
+    /**
+     * What the operator sees is what the policy actually did, which only
+     * exists because the blocking handler wrote it down.
+     */
+    public function test_a_refusal_is_recorded_and_reaches_the_operators_page_and_the_footer(): void
+    {
+        $data = $this->dataDirectory();
+        $plugin = $this->plugin(['blocked_suffixes' => '.local'], data: $data);
+        $journal = new Journal($plugin->store());
+
+        $plugin->register(new BlockedSuffixPolicy(new Policy(['.local']), $journal));
+
+        [$headers, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'shop.local']);
+        $plugin->httpRuntime()->handle('POST', '/', $headers, $body);
+
+        $operator = new OperatorPage($plugin);
+        $plugin->page('policy-admin', $operator->render(...));
+
+        [$headers, $body] = $this->uiDelivery('policy-admin', null, ['panel' => 'admin']);
+        $rendered = $plugin->httpRuntime()->handle('POST', '/ui/policy-admin', $headers, $body)->json()['page'];
+
+        self::assertSame('1', $rendered['stats'][0]['value'], 'refused today');
+        self::assertSame('1', $rendered['stats'][1]['value'], 'refused in total');
+
+        $table = $rendered['components'][1]['components'][0];
+        self::assertSame('shop.local', $table['rows'][0]['domain']);
+        self::assertSame('acme', $table['rows'][0]['account']);
+
+        $plugin->slot('footer-count', (new Slots($plugin))->footerCount(...));
+
+        [$headers, $body] = $this->uiDelivery('footer-count', null, ['panel' => 'admin']);
+        $footer = $plugin->httpRuntime()->handle('POST', '/ui/footer-count', $headers, $body)->json()['page'];
+
+        self::assertStringContainsString('refused 1 domain today', $footer['components'][0]['content']);
+    }
+
     public function test_an_unsigned_page_request_is_refused(): void
     {
         $plugin = $this->plugin();
-        $page = new PolicyPage($plugin, []);
+        $page = new PolicyPage($plugin, new Policy([]));
         $plugin->page('domain-policy', $page->render(...));
 
         [, $body] = $this->uiDelivery('domain-policy');
@@ -207,7 +354,7 @@ final class PluginTest extends TestCase
     public function test_an_unsigned_delivery_is_refused(): void
     {
         $plugin = $this->plugin();
-        $plugin->register(new BlockedSuffixPolicy('.test'));
+        $plugin->register(new BlockedSuffixPolicy(new Policy(['.test'])));
 
         [, $body] = $this->delivery(Hook::DOMAIN_CREATING, ['domain' => 'example.test']);
 

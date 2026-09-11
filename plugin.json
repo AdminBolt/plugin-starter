@@ -3,7 +3,7 @@
     "id": "domain-policy",
     "name": "Domain Policy",
     "version": "1.0.0",
-    "description": "Refuses domains matching a blocklist and tags the ones it allows.",
+    "description": "Refuses domains matching a blocklist, tags the ones it allows, and shows the policy everywhere it applies.",
     "author": {
         "name": "Your Name",
         "url": "https://example.com"
@@ -20,7 +20,8 @@
     "api": {
         "scopes": [
             "client:domains:read",
-            "client:dns-records:write"
+            "client:dns-records:write",
+            "client:cli:execute"
         ]
     },
     "hooks": [
@@ -73,6 +74,53 @@
             "title": "Domain Policy",
             "icon": "heroicon-o-shield-check",
             "group": "Domains"
+        },
+        {
+            "panel": "admin",
+            "slug": "policy-admin",
+            "title": "Domain Policy",
+            "icon": "heroicon-o-shield-check",
+            "group": "Plugins"
+        }
+    ],
+    "slots": [
+        {
+            "panel": "admin",
+            "position": "content.start",
+            "slug": "unconfigured-notice",
+            "label": "A notice above every admin page while no suffix is blocked",
+            "cache": 120
+        },
+        {
+            "panel": "admin",
+            "position": "footer",
+            "slug": "footer-count",
+            "label": "What the policy refused today, in the footer",
+            "cache": 60
+        },
+        {
+            "panel": "client",
+            "position": "sidebar.nav.end",
+            "slug": "policy-note",
+            "label": "The blocked suffixes, under the customer's navigation",
+            "cache": 300
+        }
+    ],
+    "commands": [
+        {
+            "name": "php-version",
+            "label": "Check the PHP version a site runs on",
+            "description": "Runs php -v in the directory of a domain, so the page can show what the account really has rather than what the policy asked for.",
+            "cwd": "required",
+            "timeout": 30,
+            "steps": [
+                {
+                    "program": "php",
+                    "args": [
+                        "-v"
+                    ]
+                }
+            ]
         }
     ]
 }
